@@ -396,7 +396,6 @@ func TestClusterRole_RBAC_Permissions(t *testing.T) {
 
 func TestDefaultConfig(t *testing.T) {
 	defaultCfg := DefaultConfig()
-
 	if defaultCfg.Replicas != 2 {
 		t.Errorf("expected default replicas to be 2, got %d", defaultCfg.Replicas)
 	}
@@ -408,7 +407,6 @@ func TestDefaultConfig(t *testing.T) {
 	if defaultCfg.IngressProvider != config.IngressProviderKubernetesIngress {
 		t.Errorf("expected default ingress provider to be 'KubernetesIngress', got %q", defaultCfg.IngressProvider)
 	}
-
 }
 
 func TestIngressClass_Controller(t *testing.T) {

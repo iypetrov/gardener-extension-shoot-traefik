@@ -1,6 +1,6 @@
 module github.com/gardener/gardener-extension-shoot-traefik
 
-go 1.26.0
+go 1.26.1
 
 require (
 	github.com/gardener/gardener v1.135.0

@@ -42,7 +42,6 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `image` _string_ | Image is the Traefik container image to use. |  |  |
 | `replicas` _integer_ | Replicas is the number of Traefik replicas to deploy.<br />Defaults to 2 if not specified. |  |  |
 | `ingressClass` _string_ | IngressClass is the ingress class name that Traefik will handle.<br />Defaults to "traefik" if not specified.<br />This replaces the deprecated nginx ingress class. |  |  |
 | `ingressProvider` _[IngressProviderType](#ingressprovidertype)_ | IngressProvider specifies which Kubernetes Ingress provider to use.<br />Valid values are:<br />- "KubernetesIngress" (default): Standard Kubernetes Ingress provider<br />- "KubernetesIngressNGINX": NGINX-compatible provider with support for NGINX annotations<br />Use KubernetesIngressNGINX when migrating from NGINX Ingress Controller to maintain<br />compatibility with existing NGINX-specific annotations. |  |  |
