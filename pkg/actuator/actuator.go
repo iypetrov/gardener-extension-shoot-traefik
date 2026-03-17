@@ -178,7 +178,6 @@ func (a *Actuator) Reconcile(ctx context.Context, logger logr.Logger, ex *extens
 	// [extensionsv1alpha1.Extension] resource.
 	clusterName := ex.Namespace
 
-	// Increment our metrics counter
 	defer func() {
 		metrics.ActuatorOperationTotal.WithLabelValues(clusterName, "reconcile").Inc()
 	}()
@@ -316,8 +315,6 @@ type dnsRecordRef struct {
 // externalDNSRecordRef looks up the DNSRecord that gardenlet created for the
 // shoot's external API server endpoint ("<shootName>-external") and extracts
 // the provider type and credentials secretRef from it.
-// Returns (ref, nil) when found, (nil, nil) when not yet present, or (nil, err)
-// on a lookup failure.
 func externalDNSRecordRef(ctx context.Context, c client.Client, namespace, shootName string) (*dnsRecordRef, error) {
 	record := &extensionsv1alpha1.DNSRecord{}
 	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: shootName + "-external"}, record); err != nil {
@@ -350,7 +347,6 @@ func lbAddressFromService(svc *corev1.Service) string {
 func (a *Actuator) Delete(ctx context.Context, logger logr.Logger, ex *extensionsv1alpha1.Extension) error {
 	clusterName := ex.Namespace
 
-	// Increment our metrics counter
 	defer func() {
 		metrics.ActuatorOperationTotal.WithLabelValues(clusterName, "delete").Inc()
 	}()
@@ -359,12 +355,10 @@ func (a *Actuator) Delete(ctx context.Context, logger logr.Logger, ex *extension
 
 	deployer := traefik.NewDeployer(a.client, logger, traefik.DefaultConfig(), a.imageVector)
 
-	// Delete the seed DNSRecord ManagedResource first.
 	if err := deployer.DeleteDNSRecord(ctx, clusterName); err != nil {
 		return fmt.Errorf("failed to delete traefik ingress DNS record: %w", err)
 	}
 
-	// Delete Traefik from the shoot cluster.
 	if err := deployer.Delete(ctx, clusterName); err != nil {
 		return fmt.Errorf("failed to delete traefik: %w", err)
 	}
@@ -380,7 +374,6 @@ func (a *Actuator) Delete(ctx context.Context, logger logr.Logger, ex *extension
 func (a *Actuator) ForceDelete(ctx context.Context, logger logr.Logger, ex *extensionsv1alpha1.Extension) error {
 	clusterName := ex.Namespace
 
-	// Increment our metrics counter
 	defer func() {
 		metrics.ActuatorOperationTotal.WithLabelValues(clusterName, "force_delete").Inc()
 	}()
@@ -389,12 +382,10 @@ func (a *Actuator) ForceDelete(ctx context.Context, logger logr.Logger, ex *exte
 
 	deployer := traefik.NewDeployer(a.client, logger, traefik.DefaultConfig(), a.imageVector)
 
-	// Best-effort cleanup of the seed DNSRecord.
 	if err := deployer.DeleteDNSRecord(ctx, clusterName); err != nil {
 		logger.Error(err, "failed to delete traefik ingress DNS record during force-delete", "cluster", clusterName)
 	}
 
-	// Delete Traefik from the shoot cluster.
 	if err := deployer.Delete(ctx, clusterName); err != nil {
 		return fmt.Errorf("failed to force-delete traefik: %w", err)
 	}
@@ -417,7 +408,6 @@ func (a *Actuator) Restore(ctx context.Context, logger logr.Logger, ex *extensio
 // because of a shoot control-plane migration event. This method implements the
 // [extension.Actuator] interface.
 func (a *Actuator) Migrate(ctx context.Context, logger logr.Logger, ex *extensionsv1alpha1.Extension) error {
-	// Increment our example metrics counter
 	defer func() {
 		metrics.ActuatorOperationTotal.WithLabelValues(ex.Namespace, "migrate").Inc()
 	}()
