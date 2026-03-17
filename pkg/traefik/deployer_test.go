@@ -20,35 +20,25 @@ import (
 func TestDeployment_ImageOverride(t *testing.T) {
 	tests := []struct {
 		name          string
-		configImage   string
 		imageVector   imagevector.ImageVector
 		expectedImage string
 		expectError   bool
 		errorContains string
 	}{
 		{
-			name:          "use config image when specified",
-			configImage:   "custom.registry.io/traefik:v2.0",
-			imageVector:   nil, // Should not even be consulted
-			expectedImage: "custom.registry.io/traefik:v2.0",
-			expectError:   false,
-		},
-		{
-			name:        "use image vector when config empty",
-			configImage: "",
+			name: "use image vector when config empty",
 			imageVector: imagevector.ImageVector{
 				{
 					Name:       "traefik",
 					Repository: new("docker.io/library/traefik"),
-					Tag:        new("v3.6.7"),
+					Tag:        new("v3.6.10"),
 				},
 			},
-			expectedImage: "docker.io/library/traefik:v3.6.7",
+			expectedImage: "docker.io/library/traefik:v3.6.10",
 			expectError:   false,
 		},
 		{
 			name:          "fail when config empty and image not in vector",
-			configImage:   "",
 			imageVector:   imagevector.ImageVector{}, // Empty vector
 			expectedImage: "",
 			expectError:   true,
@@ -63,7 +53,6 @@ func TestDeployment_ImageOverride(t *testing.T) {
 			client := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 			config := Config{
-				Image:        tt.configImage,
 				Replicas:     2,
 				IngressClass: "traefik",
 			}
@@ -184,12 +173,11 @@ func TestDeployment_IngressProvider(t *testing.T) {
 				{
 					Name:       "traefik",
 					Repository: new("docker.io/library/traefik"),
-					Tag:        new("v3.6.7"),
+					Tag:        new("v3.6.10"),
 				},
 			}
 
 			config := Config{
-				Image:           "",
 				Replicas:        2,
 				IngressClass:    tt.ingressClass,
 				IngressProvider: tt.ingressProvider,
@@ -278,12 +266,11 @@ func TestDeployment_LogLevel(t *testing.T) {
 				{
 					Name:       "traefik",
 					Repository: new("docker.io/library/traefik"),
-					Tag:        new("v3.6.7"),
+					Tag:        new("v3.6.10"),
 				},
 			}
 
 			config := Config{
-				Image:           "",
 				Replicas:        2,
 				IngressClass:    "traefik",
 				IngressProvider: config.IngressProviderKubernetesIngress,
@@ -340,7 +327,6 @@ func TestClusterRole_RBAC_Permissions(t *testing.T) {
 			client := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 			config := Config{
-				Image:           "traefik:v3.6.7",
 				Replicas:        2,
 				IngressClass:    "traefik",
 				IngressProvider: tt.ingressProvider,
@@ -423,9 +409,6 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("expected default ingress provider to be 'KubernetesIngress', got %q", defaultCfg.IngressProvider)
 	}
 
-	if defaultCfg.Image != "" {
-		t.Errorf("expected default image to be empty, got %q", defaultCfg.Image)
-	}
 }
 
 func TestIngressClass_Controller(t *testing.T) {
@@ -467,7 +450,6 @@ func TestIngressClass_Controller(t *testing.T) {
 			client := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 			config := Config{
-				Image:           "traefik:v3.6.7",
 				Replicas:        2,
 				IngressClass:    tt.ingressClass,
 				IngressProvider: tt.ingressProvider,

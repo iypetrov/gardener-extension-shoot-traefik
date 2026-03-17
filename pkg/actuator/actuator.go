@@ -217,9 +217,6 @@ func (a *Actuator) Reconcile(ctx context.Context, logger logr.Logger, ex *extens
 			logger.Error(err, "failed to decode provider config, using defaults")
 		} else {
 			// Apply custom configuration
-			if cfg.Spec.Image != "" {
-				traefikConfig.Image = cfg.Spec.Image
-			}
 			if cfg.Spec.Replicas > 0 {
 				traefikConfig.Replicas = cfg.Spec.Replicas
 			}

@@ -66,7 +66,6 @@ func Convert_config_TraefikConfig_To_v1alpha1_TraefikConfig(in *config.TraefikCo
 }
 
 func autoConvert_v1alpha1_TraefikConfigSpec_To_config_TraefikConfigSpec(in *TraefikConfigSpec, out *config.TraefikConfigSpec, s conversion.Scope) error {
-	out.Image = in.Image
 	out.Replicas = in.Replicas
 	out.IngressClass = in.IngressClass
 	out.IngressProvider = config.IngressProviderType(in.IngressProvider)
@@ -80,7 +79,6 @@ func Convert_v1alpha1_TraefikConfigSpec_To_config_TraefikConfigSpec(in *TraefikC
 }
 
 func autoConvert_config_TraefikConfigSpec_To_v1alpha1_TraefikConfigSpec(in *config.TraefikConfigSpec, out *TraefikConfigSpec, s conversion.Scope) error {
-	out.Image = in.Image
 	out.Replicas = in.Replicas
 	out.IngressClass = in.IngressClass
 	out.IngressProvider = IngressProviderType(in.IngressProvider)

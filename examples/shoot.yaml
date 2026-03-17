@@ -18,9 +18,6 @@ spec:
         apiVersion: traefik.extensions.gardener.cloud/v1alpha1
         kind: TraefikConfig
         spec:
-          # Optional: Custom Traefik image (if not specified, uses image from imagevector: docker.io/library/traefik:v3.6.7)
-          # image: docker.io/library/traefik:v3.6.8
-          
           # Optional: Number of Traefik replicas
           replicas: 2
           

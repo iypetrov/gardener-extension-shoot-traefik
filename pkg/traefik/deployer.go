@@ -30,8 +30,6 @@ import (
 
 // Config holds the configuration for the Traefik deployment.
 type Config struct {
-	// Image is the Traefik container image to use.
-	Image string
 	// Replicas is the number of Traefik replicas.
 	Replicas int32
 	// IngressClass is the ingress class name that Traefik will handle.
@@ -45,7 +43,6 @@ type Config struct {
 // DefaultConfig returns the default configuration for Traefik.
 func DefaultConfig() Config {
 	return Config{
-		Image:           "", // Image will be resolved from image vector
 		Replicas:        2,
 		IngressClass:    "traefik",
 		IngressProvider: config.IngressProviderKubernetesIngress,
@@ -393,15 +390,12 @@ func (d *Deployer) deployment() (*appsv1.Deployment, error) {
 		"networking.gardener.cloud/to-dns":       "allowed",
 	}
 
-	// Get the Traefik image from the image vector, fallback to config if specified
-	image := d.config.Image
-	if image == "" {
-		img, err := d.imageVector.FindImage(ImageName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to find traefik image in image vector: %w", err)
-		}
-		image = img.String()
+	// Get the Traefik image from the image vector
+	img, err := d.imageVector.FindImage(ImageName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find traefik image in image vector: %w", err)
 	}
+	image := img.String()
 
 	// Configure Traefik arguments based on the selected provider
 	args := []string{

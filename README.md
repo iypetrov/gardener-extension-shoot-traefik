@@ -41,8 +41,6 @@ spec:
         apiVersion: traefik.extensions.gardener.cloud/v1alpha1
         kind: TraefikConfig
         spec:
-          # Optional: Custom Traefik image (default: traefik:v3.6.8)
-          image: traefik:v3.6.8
           # Optional: Number of replicas (default: 2)
           replicas: 2
           # Optional: Ingress class name (default: traefik)
@@ -62,7 +60,7 @@ spec:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `spec.image` | string | `traefik:v3.6.8` | Traefik container image |
+| `spec.image` | string | `traefik:v3.6.10` | Traefik container image |
 | `spec.replicas` | int32 | `2` | Number of Traefik replicas |
 | `spec.ingressClass` | string | `traefik` | Ingress class name that Traefik handles |
 | `spec.logLevel` | string | `INFO` | Traefik log level: `DEBUG`, `INFO`, `WARN`, `ERROR`, `FATAL`, `PANIC` |

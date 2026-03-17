@@ -22,9 +22,6 @@ const (
 
 // TraefikConfigSpec defines the desired state of [TraefikConfig]
 type TraefikConfigSpec struct {
-	// Image is the Traefik container image to use.
-	Image string `json:"image,omitempty"`
-
 	// Replicas is the number of Traefik replicas to deploy.
 	// Defaults to 2 if not specified.
 	Replicas int32 `json:"replicas,omitempty"`

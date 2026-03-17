@@ -37,7 +37,6 @@ var _ = Describe("Actuator", Ordered, func() {
 		actuatorOpts   []actuator.Option
 		providerConfig = config.TraefikConfig{
 			Spec: config.TraefikConfigSpec{
-				Image:        "traefik:v3.6.8.0",
 				Replicas:     1,
 				IngressClass: "traefik",
 			},
@@ -282,7 +281,6 @@ var _ = Describe("Actuator", Ordered, func() {
 			// Create config without IngressProvider field
 			cfg := config.TraefikConfig{
 				Spec: config.TraefikConfigSpec{
-					Image:        "traefik:v3.6.8",
 					Replicas:     2,
 					IngressClass: "traefik",
 					// IngressProvider not specified
@@ -304,7 +302,6 @@ var _ = Describe("Actuator", Ordered, func() {
 		It("should use KubernetesIngress provider when explicitly specified", func() {
 			cfg := config.TraefikConfig{
 				Spec: config.TraefikConfigSpec{
-					Image:           "traefik:v3.6.8",
 					Replicas:        2,
 					IngressClass:    "traefik",
 					IngressProvider: config.IngressProviderKubernetesIngress,
@@ -326,7 +323,6 @@ var _ = Describe("Actuator", Ordered, func() {
 		It("should use KubernetesIngressNGINX provider when specified", func() {
 			cfg := config.TraefikConfig{
 				Spec: config.TraefikConfigSpec{
-					Image:           "traefik:v3.6.8",
 					Replicas:        2,
 					IngressClass:    "nginx",
 					IngressProvider: config.IngressProviderKubernetesIngressNGINX,
@@ -348,7 +344,6 @@ var _ = Describe("Actuator", Ordered, func() {
 		It("should auto-set IngressClass to 'nginx' for KubernetesIngressNGINX when not specified", func() {
 			cfg := config.TraefikConfig{
 				Spec: config.TraefikConfigSpec{
-					Image:           "traefik:v3.6.8",
 					Replicas:        2,
 					IngressProvider: config.IngressProviderKubernetesIngressNGINX,
 					// IngressClass not specified - should default to "nginx"
@@ -370,7 +365,6 @@ var _ = Describe("Actuator", Ordered, func() {
 		It("should reconcile with all provider config options", func() {
 			cfg := config.TraefikConfig{
 				Spec: config.TraefikConfigSpec{
-					Image:           "custom.registry.io/traefik:v3.6.9",
 					Replicas:        3,
 					IngressClass:    "custom-traefik",
 					IngressProvider: config.IngressProviderKubernetesIngressNGINX,
