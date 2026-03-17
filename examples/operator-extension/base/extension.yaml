@@ -7,7 +7,7 @@ spec:
     extension:
       helm:
         ociRepository:
-          ref: registry.local.gardener.cloud:5001/helm-charts/gardener-extension-shoot-traefik:v0.1.0-dev
+          ref: europe-docker.pkg.dev/gardener-project/public/gardener/extensions/gardener-extension-shoot-traefik:v0.1.0-dev
   resources:
-    - kind: Extension
-      type: traefik
+  - kind: Extension
+    type: traefik

@@ -5,6 +5,24 @@ metadata:
   annotations:
     security.gardener.cloud/pod-security-enforce: baseline
 spec:
+  deployment:
+    extension:
+      values:
+        image:
+          repository: europe-docker.pkg.dev/gardener-project/public/gardener/extensions/gardener-extension-shoot-traefik
+          tag: v0.1.0-dev
+        replicaCount: 1
+        resources:
+          requests:
+            cpu: 30m
+            memory: 128Mi
+        vpa:
+          enabled: true
+          resourcePolicy:
+            minAllowed:
+              memory: 64Mi
+          updatePolicy:
+            updateMode: Recreate
   resources:
   - kind: Extension
     type: traefik

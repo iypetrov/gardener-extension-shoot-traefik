@@ -11,13 +11,17 @@ import (
 	"errors"
 	"fmt"
 
+	extensionsconfigv1alpha1 "github.com/gardener/gardener/extensions/pkg/apis/config/v1alpha1"
 	extensionscontroller "github.com/gardener/gardener/extensions/pkg/controller"
 	"github.com/gardener/gardener/extensions/pkg/controller/extension"
+	extensionsutil "github.com/gardener/gardener/extensions/pkg/util"
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1helper "github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
 	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
+	gardenerutils "github.com/gardener/gardener/pkg/utils/gardener"
 	"github.com/gardener/gardener/pkg/utils/imagevector"
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/component-base/featuregate"
@@ -243,9 +247,102 @@ func (a *Actuator) Reconcile(ctx context.Context, logger logr.Logger, ex *extens
 		return fmt.Errorf("failed to deploy traefik: %w", err)
 	}
 
+	// Deploy the DNSRecord for the Traefik ingress wildcard domain via a seed ManagedResource.
+	if err := a.reconcileDNSRecord(ctx, logger, cluster, clusterName, deployer); err != nil {
+		return err
+	}
+
 	logger.Info("successfully reconciled traefik extension", "cluster", clusterName)
 
 	return nil
+}
+
+// reconcileDNSRecord reads the Traefik LoadBalancer address from the shoot
+// cluster and creates/updates the seed-class ManagedResource containing the
+// DNSRecord for the wildcard ingress domain.
+func (a *Actuator) reconcileDNSRecord(ctx context.Context, logger logr.Logger, cluster *extensionscontroller.Cluster, clusterName string, deployer *traefik.Deployer) error {
+	shoot := cluster.Shoot
+
+	// Skip DNS record creation when no DNS domain is configured for the shoot.
+	if shoot.Spec.DNS == nil || shoot.Spec.DNS.Domain == nil {
+		logger.Info("shoot has no DNS domain configured, skipping ingress DNS record", "cluster", clusterName)
+
+		return nil
+	}
+
+	// Reuse the provider type and credentials secret from the external DNSRecord
+	// that gardenlet already created for the shoot's API server endpoint.
+	// That record is named "<shootName>-external" in the shoot's control-plane namespace.
+	ref, err := externalDNSRecordRef(ctx, a.client, clusterName, shoot.Name)
+	if err != nil {
+		return fmt.Errorf("failed to look up external DNSRecord for shoot: %w", err)
+	}
+	if ref == nil {
+		logger.Info("external DNSRecord not yet available for shoot, skipping ingress DNS record", "cluster", clusterName)
+
+		return nil
+	}
+
+	// Build a client for the shoot cluster to read the Traefik Service.
+	_, shootClient, err := extensionsutil.NewClientForShoot(ctx, a.client, clusterName, client.Options{}, extensionsconfigv1alpha1.RESTOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to create shoot client: %w", err)
+	}
+
+	// Read the Traefik LoadBalancer Service.
+	svc := &corev1.Service{}
+	if err := shootClient.Get(ctx, client.ObjectKey{Namespace: traefik.Namespace, Name: traefik.DeploymentName}, svc); err != nil {
+		return fmt.Errorf("failed to get traefik service from shoot: %w", err)
+	}
+
+	// Determine the LB address – the Service may still be pending.
+	lbAddress := lbAddressFromService(svc)
+	if lbAddress == "" {
+		return errors.New("traefik LoadBalancer address not yet available, will retry")
+	}
+
+	dnsName := fmt.Sprintf("*.%s.%s", gardenerutils.IngressPrefix, *shoot.Spec.DNS.Domain)
+
+	return deployer.DeployDNSRecord(ctx, clusterName, lbAddress, dnsName, ref.ProviderType, ref.SecretRef)
+}
+
+// dnsRecordRef holds the DNS provider type and credentials secret reference
+// extracted from a DNSRecord resource.
+type dnsRecordRef struct {
+	ProviderType string
+	SecretRef    corev1.SecretReference
+}
+
+// externalDNSRecordRef looks up the DNSRecord that gardenlet created for the
+// shoot's external API server endpoint ("<shootName>-external") and extracts
+// the provider type and credentials secretRef from it.
+// Returns (ref, nil) when found, (nil, nil) when not yet present, or (nil, err)
+// on a lookup failure.
+func externalDNSRecordRef(ctx context.Context, c client.Client, namespace, shootName string) (*dnsRecordRef, error) {
+	record := &extensionsv1alpha1.DNSRecord{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: shootName + "-external"}, record); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			return nil, nil
+		}
+
+		return nil, err
+	}
+
+	return &dnsRecordRef{ProviderType: record.Spec.Type, SecretRef: record.Spec.SecretRef}, nil
+}
+
+// lbAddressFromService extracts the first LoadBalancer IP or hostname from a Service.
+func lbAddressFromService(svc *corev1.Service) string {
+	for _, ing := range svc.Status.LoadBalancer.Ingress {
+		if ing.IP != "" {
+			return ing.IP
+		}
+		if ing.Hostname != "" {
+			return ing.Hostname
+		}
+	}
+
+	return ""
 }
 
 // Delete deletes any resources managed by the [Actuator]. This method
@@ -260,8 +357,14 @@ func (a *Actuator) Delete(ctx context.Context, logger logr.Logger, ex *extension
 
 	logger.Info("deleting traefik resources managed by extension", "cluster", clusterName)
 
-	// Delete Traefik from the shoot cluster
 	deployer := traefik.NewDeployer(a.client, logger, traefik.DefaultConfig(), a.imageVector)
+
+	// Delete the seed DNSRecord ManagedResource first.
+	if err := deployer.DeleteDNSRecord(ctx, clusterName); err != nil {
+		return fmt.Errorf("failed to delete traefik ingress DNS record: %w", err)
+	}
+
+	// Delete Traefik from the shoot cluster.
 	if err := deployer.Delete(ctx, clusterName); err != nil {
 		return fmt.Errorf("failed to delete traefik: %w", err)
 	}
@@ -284,8 +387,14 @@ func (a *Actuator) ForceDelete(ctx context.Context, logger logr.Logger, ex *exte
 
 	logger.Info("shoot has been force-deleted, deleting traefik resources", "cluster", clusterName)
 
-	// Delete Traefik from the shoot cluster
 	deployer := traefik.NewDeployer(a.client, logger, traefik.DefaultConfig(), a.imageVector)
+
+	// Best-effort cleanup of the seed DNSRecord.
+	if err := deployer.DeleteDNSRecord(ctx, clusterName); err != nil {
+		logger.Error(err, "failed to delete traefik ingress DNS record during force-delete", "cluster", clusterName)
+	}
+
+	// Delete Traefik from the shoot cluster.
 	if err := deployer.Delete(ctx, clusterName); err != nil {
 		return fmt.Errorf("failed to force-delete traefik: %w", err)
 	}

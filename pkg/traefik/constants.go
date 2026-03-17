@@ -19,4 +19,8 @@ const (
 
 	// ImageName is the name of the Traefik image in the image vector.
 	ImageName = "traefik"
+
+	// SeedManagedResourceName is the name of the seed-class ManagedResource
+	// that contains the DNSRecord for the Traefik ingress wildcard domain.
+	SeedManagedResourceName = "extension-traefik-ingress-dns"
 )

@@ -102,6 +102,7 @@ podAnnotations: {}
 podLabels:
   networking.gardener.cloud/to-runtime-apiserver: allowed
   networking.gardener.cloud/to-dns: allowed
+  networking.resources.gardener.cloud/to-all-shoots-kube-apiserver-tcp-443: allowed
 # Pod and container security context settings.
 #
 # For more details about security context check the following documentation.

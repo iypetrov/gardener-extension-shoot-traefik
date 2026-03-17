@@ -265,6 +265,8 @@ update-version-tags:  ## Update version tags in helm charts and example resource
 		$(GO_TOOL) yq -i '.helm.ociRepository.ref = env(oci_charts)' $(SRC_ROOT)/examples/dev-setup/controllerdeployment.yaml
 	@env oci_charts=$(LOCAL_REGISTRY)/helm-charts/$(EXTENSION_NAME):$(VERSION) \
 		$(GO_TOOL) yq -i '.spec.deployment.extension.helm.ociRepository.ref = env(oci_charts)' $(SRC_ROOT)/examples/operator-extension/base/extension.yaml
+	@env image=$(IMAGE) tag=$(VERSION) \
+		$(GO_TOOL) yq -i '(.spec.deployment.extension.values.image.repository = env(image)) | (.spec.deployment.extension.values.image.tag = env(tag))' $(SRC_ROOT)/examples/operator-extension/patches/extension.yaml
 
 deploy deploy-operator: export IMAGE=$(LOCAL_REGISTRY)/extensions/$(EXTENSION_NAME)
 

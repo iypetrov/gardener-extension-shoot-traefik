@@ -10,9 +10,12 @@ import (
 	"context"
 	"fmt"
 
+	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
+	extensionsv1alpha1helper "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1/helper"
 	resourcesv1alpha1 "github.com/gardener/gardener/pkg/apis/resources/v1alpha1"
 	"github.com/gardener/gardener/pkg/utils"
 	"github.com/gardener/gardener/pkg/utils/imagevector"
+	"github.com/gardener/gardener/pkg/utils/managedresources"
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -187,6 +190,78 @@ func (d *Deployer) Delete(ctx context.Context, namespace string) error {
 	}
 
 	d.logger.Info("successfully deleted traefik", "namespace", namespace)
+
+	return nil
+}
+
+// DeployDNSRecord creates or updates a seed-class ManagedResource containing a
+// DNSRecord for the Traefik ingress wildcard domain ("*.ingress.<shootDomain>").
+// The DNSRecord is reconciled by the seed's gardener-resource-manager and then
+// picked up by the configured DNS provider extension.
+//
+// Parameters:
+//   - namespace: the shoot's control-plane namespace on the seed
+//   - lbAddress: the LoadBalancer IP or hostname of the Traefik Service in the shoot
+//   - dnsName: the fully-qualified wildcard domain, e.g. "*.ingress.my-shoot.example.com"
+//   - providerType: the DNS provider type, e.g. "aws-route53"
+//   - secretRef: reference to the DNS provider credentials secret (in the same namespace)
+func (d *Deployer) DeployDNSRecord(ctx context.Context, namespace, lbAddress, dnsName, providerType string, secretRef corev1.SecretReference) error {
+	d.logger.Info("deploying seed DNSRecord for traefik ingress", "namespace", namespace, "dnsName", dnsName, "lbAddress", lbAddress)
+
+	recordType := extensionsv1alpha1helper.GetDNSRecordType(lbAddress)
+
+	dnsRecord := &extensionsv1alpha1.DNSRecord{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: extensionsv1alpha1.SchemeGroupVersion.String(),
+			Kind:       extensionsv1alpha1.DNSRecordResource,
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      SeedManagedResourceName,
+			Namespace: namespace,
+		},
+		Spec: extensionsv1alpha1.DNSRecordSpec{
+			DefaultSpec: extensionsv1alpha1.DefaultSpec{
+				Type: providerType,
+			},
+			SecretRef:  secretRef,
+			Name:       dnsName,
+			RecordType: recordType,
+			Values:     []string{lbAddress},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	if err := extensionsv1alpha1.AddToScheme(scheme); err != nil {
+		return fmt.Errorf("failed to set up extensions scheme for DNS record encoding: %w", err)
+	}
+	codec := serializer.NewCodecFactory(scheme).LegacyCodec(extensionsv1alpha1.SchemeGroupVersion)
+
+	dnsRecordData, err := runtime.Encode(codec, dnsRecord)
+	if err != nil {
+		return fmt.Errorf("failed to encode DNSRecord: %w", err)
+	}
+
+	if err := managedresources.CreateForSeed(ctx, d.client, namespace, SeedManagedResourceName, false, map[string][]byte{
+		"dnsrecord.yaml": dnsRecordData,
+	}); err != nil {
+		return fmt.Errorf("failed to deploy seed ManagedResource for DNSRecord: %w", err)
+	}
+
+	d.logger.Info("successfully deployed seed DNSRecord for traefik ingress", "namespace", namespace)
+
+	return nil
+}
+
+// DeleteDNSRecord deletes the seed-class ManagedResource (and its backing secret)
+// that contains the Traefik ingress DNSRecord.
+func (d *Deployer) DeleteDNSRecord(ctx context.Context, namespace string) error {
+	d.logger.Info("deleting seed DNSRecord for traefik ingress", "namespace", namespace)
+
+	if err := managedresources.Delete(ctx, d.client, namespace, SeedManagedResourceName, true); err != nil {
+		return fmt.Errorf("failed to delete seed ManagedResource for DNSRecord: %w", err)
+	}
+
+	d.logger.Info("successfully deleted seed DNSRecord for traefik ingress", "namespace", namespace)
 
 	return nil
 }
