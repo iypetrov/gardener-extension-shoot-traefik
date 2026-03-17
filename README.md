@@ -81,7 +81,7 @@ spec:
 
 #### KubernetesIngressNGINX
 
-The NGINX-compatible provider that supports [NGINX Ingress Controller annotations](https://kubernetes.github.io/ingress-nginx/user-guide/nginx-configuration/annotations/), making it easier to migrate from NGINX Ingress Controller to Traefik with minimal configuration changes.
+The NGINX-compatible provider makes it easier to migrate from NGINX Ingress Controller to Traefik with minimal configuration changes. Note that only a subset of NGINX annotations is supported — see the [Traefik NGINX Annotations Support](https://doc.traefik.io/traefik/reference/install-configuration/providers/kubernetes/kubernetes-ingress-nginx/) page for details.
 
 ```yaml
 spec:
@@ -100,15 +100,6 @@ For more information, see:
 - [Traefik NGINX Annotations Support](https://doc.traefik.io/traefik/reference/install-configuration/providers/kubernetes/kubernetes-ingress-nginx/)
 - [NGINX to Traefik Migration Guide](https://doc.traefik.io/traefik/migrate/nginx-to-traefik/)
 
-### Why Traefik?
-
-Traefik is chosen as a replacement for nginx-ingress-controller because:
-
-1. **Active Maintenance**: Traefik is actively maintained with regular updates
-2. **Modern Features**: Native support for modern protocols and features
-3. **Kubernetes-Native**: Built-in Kubernetes Ingress support
-4. **Observability**: Built-in metrics and tracing support
-
 ## Development
 
 In order to build a binary of the extension, you can use the following command.
@@ -117,7 +108,7 @@ In order to build a binary of the extension, you can use the following command.
 make build
 ```
 
-The resulting binary can be found in `bin/extension`.
+The resulting binary can be found in `bin/extension-traefik`.
 
 In order to build a Docker image of the extension, you can use the following
 command.

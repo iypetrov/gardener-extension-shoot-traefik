@@ -42,7 +42,7 @@ spec:
 
 ### KubernetesIngressNGINX
 
-The NGINX-compatible provider supports [NGINX Ingress Controller annotations](https://kubernetes.github.io/ingress-nginx/user-guide/nginx-configuration/annotations/), making it easier to migrate from NGINX Ingress Controller to Traefik with minimal configuration changes.
+The NGINX-compatible provider makes it easier to migrate from NGINX Ingress Controller to Traefik with minimal configuration changes. Note that only a subset of NGINX annotations is supported — see the [Traefik NGINX Annotations Support](https://doc.traefik.io/traefik/reference/routing-configuration/kubernetes/ingress-nginx/) page for details.
 
 **Configuration:**
 
@@ -74,8 +74,8 @@ spec:
 
 **Supported NGINX Annotations:**
 
-Traefik's NGINX-compatible provider automatically translates many common NGINX annotations. For a complete list of supported annotations, see:
-- [Traefik NGINX Annotations Documentation](https://doc.traefik.io/traefik/reference/routing-configuration/kubernetes/ingress-nginx/)
+Not all NGINX annotations are supported. For the complete list of annotations that Traefik can translate, see:
+- [Traefik NGINX Annotations Support](https://doc.traefik.io/traefik/reference/routing-configuration/kubernetes/ingress-nginx/)
 
 ## Migration from NGINX Ingress Controller
 
