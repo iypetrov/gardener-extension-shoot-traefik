@@ -9,4 +9,4 @@ images:
     name: traefik
   sourceRepository: github.com/traefik/traefik
   repository: docker.io/library/traefik
-  tag: "v3.6.10"
+  tag: "v3.6.11"
