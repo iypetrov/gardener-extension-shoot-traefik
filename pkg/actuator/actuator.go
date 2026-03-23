@@ -189,7 +189,12 @@ func (a *Actuator) Reconcile(ctx context.Context, logger logr.Logger, ex *extens
 		return fmt.Errorf("failed to get cluster: %w", err)
 	}
 
-	// Nothing to do here, if the shoot cluster is hibernated at the moment.
+	if cluster.Shoot.DeletionTimestamp != nil {
+		logger.Info("shoot is being deleted, skipping traefik reconciliation", "cluster", clusterName)
+
+		return nil
+	}
+
 	if v1beta1helper.HibernationIsEnabled(cluster.Shoot) {
 		logger.Info("shoot is hibernated, skipping traefik deployment", "cluster", clusterName)
 
@@ -212,7 +217,6 @@ func (a *Actuator) Reconcile(ctx context.Context, logger logr.Logger, ex *extens
 		return fmt.Errorf("%w: got purpose '%s'", ErrShootPurposeNotEvaluation, purposeStr)
 	}
 
-	// Parse the Traefik configuration from the extension spec
 	traefikConfig := traefik.DefaultConfig()
 	if ex.Spec.ProviderConfig != nil {
 		var cfg config.TraefikConfig
@@ -240,7 +244,6 @@ func (a *Actuator) Reconcile(ctx context.Context, logger logr.Logger, ex *extens
 		}
 	}
 
-	// Deploy Traefik to the shoot cluster
 	deployer := traefik.NewDeployer(a.client, logger, traefikConfig, a.imageVector)
 	if err := deployer.Deploy(ctx, clusterName); err != nil {
 		return fmt.Errorf("failed to deploy traefik: %w", err)
@@ -288,7 +291,6 @@ func (a *Actuator) reconcileDNSRecord(ctx context.Context, logger logr.Logger, c
 		return fmt.Errorf("failed to create shoot client: %w", err)
 	}
 
-	// Read the Traefik LoadBalancer Service.
 	svc := &corev1.Service{}
 	if err := shootClient.Get(ctx, client.ObjectKey{Namespace: traefik.Namespace, Name: traefik.DeploymentName}, svc); err != nil {
 		return fmt.Errorf("failed to get traefik service from shoot: %w", err)
@@ -344,6 +346,12 @@ func lbAddressFromService(svc *corev1.Service) string {
 
 // Delete deletes any resources managed by the [Actuator]. This method
 // implements the [extension.Actuator] interface.
+//
+// Because the extension is configured with lifecycle.delete=BeforeKubeAPIServer,
+// the shoot kube-apiserver is still running at this point. We pass keepObjects=false
+// so that resource-manager cleanly removes the Traefik objects from the shoot cluster
+// before the ManagedResource itself is deleted. The seed-side DNSRecord ManagedResource
+// is deleted first so that the DNS extension cleans up the actual DNS record.
 func (a *Actuator) Delete(ctx context.Context, logger logr.Logger, ex *extensionsv1alpha1.Extension) error {
 	clusterName := ex.Namespace
 
@@ -355,11 +363,16 @@ func (a *Actuator) Delete(ctx context.Context, logger logr.Logger, ex *extension
 
 	deployer := traefik.NewDeployer(a.client, logger, traefik.DefaultConfig(), a.imageVector)
 
+	// First delete the DNSRecord ManagedResource from the seed and wait for the
+	// DNS extension to clean up the actual DNS record.
 	if err := deployer.DeleteDNSRecord(ctx, clusterName); err != nil {
 		return fmt.Errorf("failed to delete traefik ingress DNS record: %w", err)
 	}
 
-	if err := deployer.Delete(ctx, clusterName); err != nil {
+	// Delete the shoot ManagedResource with keepObjects=false. The shoot
+	// kube-apiserver is still running at this point (delete: BeforeKubeAPIServer),
+	// so resource-manager can cleanly remove Traefik from the shoot cluster.
+	if err := deployer.Delete(ctx, clusterName, false); err != nil {
 		return fmt.Errorf("failed to delete traefik: %w", err)
 	}
 
@@ -371,6 +384,11 @@ func (a *Actuator) Delete(ctx context.Context, logger logr.Logger, ex *extension
 // ForceDelete signals the [Actuator] to delete any resources managed by it,
 // because of a force-delete event of the shoot cluster. This method implements
 // the [extension.Actuator] interface.
+//
+// During force-delete the shoot API server is unreachable, so we set
+// keepObjects=true on the shoot ManagedResource to let resource-manager remove
+// its finalizer immediately without trying to reach the shoot. The seed DNS
+// record is still cleaned up normally.
 func (a *Actuator) ForceDelete(ctx context.Context, logger logr.Logger, ex *extensionsv1alpha1.Extension) error {
 	clusterName := ex.Namespace
 
@@ -382,11 +400,14 @@ func (a *Actuator) ForceDelete(ctx context.Context, logger logr.Logger, ex *exte
 
 	deployer := traefik.NewDeployer(a.client, logger, traefik.DefaultConfig(), a.imageVector)
 
+	// Best-effort deletion of the DNS record; the shoot is going away anyway.
 	if err := deployer.DeleteDNSRecord(ctx, clusterName); err != nil {
 		logger.Error(err, "failed to delete traefik ingress DNS record during force-delete", "cluster", clusterName)
 	}
 
-	if err := deployer.Delete(ctx, clusterName); err != nil {
+	// Delete shoot ManagedResource with keepObjects=true because the shoot
+	// API server is unreachable during force-delete.
+	if err := deployer.Delete(ctx, clusterName, true); err != nil {
 		return fmt.Errorf("failed to force-delete traefik: %w", err)
 	}
 
@@ -404,13 +425,36 @@ func (a *Actuator) Restore(ctx context.Context, logger logr.Logger, ex *extensio
 	return a.Reconcile(ctx, logger, ex)
 }
 
-// Migrate signals the [Actuator] to reconcile the resources managed by it,
-// because of a shoot control-plane migration event. This method implements the
-// [extension.Actuator] interface.
+// Migrate signals the [Actuator] to clean up control-plane resources managed
+// by it, because of a shoot control-plane migration event. This method
+// implements the [extension.Actuator] interface.
+//
+// During migration, shoot objects must be preserved (keepObjects=true) while
+// the seed-side ManagedResources are deleted, so that the new seed can
+// re-create them.
 func (a *Actuator) Migrate(ctx context.Context, logger logr.Logger, ex *extensionsv1alpha1.Extension) error {
+	clusterName := ex.Namespace
+
 	defer func() {
-		metrics.ActuatorOperationTotal.WithLabelValues(ex.Namespace, "migrate").Inc()
+		metrics.ActuatorOperationTotal.WithLabelValues(clusterName, "migrate").Inc()
 	}()
 
-	return a.Reconcile(ctx, logger, ex)
+	logger.Info("migrating traefik extension, cleaning up control-plane resources", "cluster", clusterName)
+
+	deployer := traefik.NewDeployer(a.client, logger, traefik.DefaultConfig(), a.imageVector)
+
+	// Delete the seed DNSRecord ManagedResource; the new seed will recreate it.
+	if err := deployer.DeleteDNSRecord(ctx, clusterName); err != nil {
+		return fmt.Errorf("failed to delete traefik ingress DNS record during migrate: %w", err)
+	}
+
+	// Keep shoot objects alive (traefik keeps running in the shoot) and only
+	// remove the ManagedResource from the old seed.
+	if err := deployer.Delete(ctx, clusterName, true); err != nil {
+		return fmt.Errorf("failed to delete traefik managed resource during migrate: %w", err)
+	}
+
+	logger.Info("successfully migrated traefik extension", "cluster", clusterName)
+
+	return nil
 }

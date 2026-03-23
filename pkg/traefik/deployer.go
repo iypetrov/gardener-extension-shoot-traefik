@@ -9,7 +9,9 @@ package traefik
 import (
 	"context"
 	"fmt"
+	"time"
 
+	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
 	extensionsv1alpha1helper "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1/helper"
 	resourcesv1alpha1 "github.com/gardener/gardener/pkg/apis/resources/v1alpha1"
@@ -158,10 +160,28 @@ func (d *Deployer) Deploy(ctx context.Context, namespace string) error {
 }
 
 // Delete removes Traefik from the shoot cluster.
-func (d *Deployer) Delete(ctx context.Context, namespace string) error {
-	d.logger.Info("deleting traefik from shoot cluster", "namespace", namespace)
+//
+// When keepObjects is true the ManagedResource is patched so that
+// gardener-resource-manager skips shoot-cluster cleanup and removes its
+// finalizer immediately. This is required during force-delete or migrate
+// because the shoot API server may already be unreachable.
+//
+// When keepObjects is false (normal deletion) the resources are deleted
+// from the shoot cluster before the ManagedResource itself is removed.
+//
+// The caller MUST NOT return before this function completes: gardenlet's
+// "Waiting until shoot managed resources have been deleted" task lists every
+// shoot-class (no-class) ManagedResource in the shoot namespace and will time
+// out if extension-traefik still exists when that check runs.
+func (d *Deployer) Delete(ctx context.Context, namespace string, keepObjects bool) error {
+	d.logger.Info("deleting traefik from shoot cluster", "namespace", namespace, "keepObjects", keepObjects)
 
-	// Delete the ManagedResource
+	if keepObjects {
+		if err := managedresources.SetKeepObjects(ctx, d.client, namespace, ManagedResourceName, true); client.IgnoreNotFound(err) != nil {
+			return fmt.Errorf("failed to set keepObjects on managed resource: %w", err)
+		}
+	}
+
 	managedResource := &resourcesv1alpha1.ManagedResource{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      ManagedResourceName,
@@ -169,13 +189,18 @@ func (d *Deployer) Delete(ctx context.Context, namespace string) error {
 		},
 	}
 
-	if err := d.client.Delete(ctx, managedResource); err != nil {
-		if client.IgnoreNotFound(err) != nil {
-			return fmt.Errorf("failed to delete managed resource: %w", err)
-		}
+	if err := d.client.Delete(ctx, managedResource); client.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("failed to delete managed resource: %w", err)
 	}
 
-	// Delete the secret
+	timeoutCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	if err := managedresources.WaitUntilDeleted(timeoutCtx, d.client, namespace, ManagedResourceName); err != nil {
+		return fmt.Errorf("timed out waiting for managed resource to be deleted: %w", err)
+	}
+
+	// Safe to remove the backing secret now that the ManagedResource is gone.
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      ManagedResourceName,
@@ -183,10 +208,8 @@ func (d *Deployer) Delete(ctx context.Context, namespace string) error {
 		},
 	}
 
-	if err := d.client.Delete(ctx, secret); err != nil {
-		if client.IgnoreNotFound(err) != nil {
-			return fmt.Errorf("failed to delete secret: %w", err)
-		}
+	if err := d.client.Delete(ctx, secret); client.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("failed to delete secret: %w", err)
 	}
 
 	d.logger.Info("successfully deleted traefik", "namespace", namespace)
@@ -252,13 +275,53 @@ func (d *Deployer) DeployDNSRecord(ctx context.Context, namespace, lbAddress, dn
 	return nil
 }
 
-// DeleteDNSRecord deletes the seed-class ManagedResource (and its backing secret)
-// that contains the Traefik ingress DNSRecord.
+// DeleteDNSRecord deletes the Traefik ingress DNSRecord from the seed and then
+// cleans up the seed-class ManagedResource that originally created it.
+//
+// The DNSRecord is deleted directly (not via the ManagedResource) because
+// resource-manager's reconciliation loop would revert the deletion-confirmation
+// annotation before processing the MR deletion, causing the
+// cr-deletion-protection webhook to block cleanup indefinitely.
 func (d *Deployer) DeleteDNSRecord(ctx context.Context, namespace string) error {
 	d.logger.Info("deleting seed DNSRecord for traefik ingress", "namespace", namespace)
 
+	// 1. Set keepObjects=true on the seed ManagedResource and delete it first,
+	//    so resource-manager stops managing the DNSRecord and won't recreate it.
+	if err := managedresources.SetKeepObjects(ctx, d.client, namespace, SeedManagedResourceName, true); client.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("failed to set keepObjects on seed ManagedResource: %w", err)
+	}
+
 	if err := managedresources.Delete(ctx, d.client, namespace, SeedManagedResourceName, true); err != nil {
 		return fmt.Errorf("failed to delete seed ManagedResource for DNSRecord: %w", err)
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	if err := managedresources.WaitUntilDeleted(timeoutCtx, d.client, namespace, SeedManagedResourceName); err != nil {
+		return fmt.Errorf("timed out waiting for seed ManagedResource to be deleted: %w", err)
+	}
+
+	// 2. Now that resource-manager is no longer managing the DNSRecord, delete it
+	//    directly with the deletion-confirmation annotation.
+	dnsRecord := &extensionsv1alpha1.DNSRecord{}
+	key := client.ObjectKey{Namespace: namespace, Name: SeedManagedResourceName}
+	if err := d.client.Get(ctx, key, dnsRecord); err == nil {
+		patch := client.MergeFrom(dnsRecord.DeepCopy())
+		if dnsRecord.Annotations == nil {
+			dnsRecord.Annotations = make(map[string]string)
+		}
+		dnsRecord.Annotations[v1beta1constants.ConfirmationDeletion] = "true"
+		if err := d.client.Patch(ctx, dnsRecord, patch); err != nil {
+			return fmt.Errorf("failed to annotate DNSRecord with deletion confirmation: %w", err)
+		}
+
+		if err := d.client.Delete(ctx, dnsRecord); client.IgnoreNotFound(err) != nil {
+			return fmt.Errorf("failed to delete DNSRecord: %w", err)
+		}
+		d.logger.Info("DNSRecord deleted", "namespace", namespace, "name", SeedManagedResourceName)
+	} else if client.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("failed to get DNSRecord: %w", err)
 	}
 
 	d.logger.Info("successfully deleted seed DNSRecord for traefik ingress", "namespace", namespace)
