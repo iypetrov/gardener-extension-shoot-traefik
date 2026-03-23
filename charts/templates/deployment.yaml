@@ -26,7 +26,6 @@ spec:
       labels:
         app.kubernetes.io/name: {{ .Values.extension.name }}
         app.kubernetes.io/instance: {{ .Release.Name }}
-        networking.resources.gardener.cloud/to-all-shoots-kube-apiserver-tcp-443: allowed
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
