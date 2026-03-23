@@ -679,16 +679,6 @@ func (d *Deployer) deployment() (*appsv1.Deployment, error) {
 									Drop: []corev1.Capability{"ALL"},
 								},
 							},
-							Env: []corev1.EnvVar{
-								{
-									Name:  "KUBERNETES_SERVICE_HOST",
-									Value: "kubernetes.default.svc.cluster.local",
-								},
-								{
-									Name:  "KUBERNETES_SERVICE_PORT",
-									Value: "443",
-								},
-							},
 						},
 					},
 					TopologySpreadConstraints: []corev1.TopologySpreadConstraint{
