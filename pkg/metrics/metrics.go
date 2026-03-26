@@ -11,27 +11,25 @@ import (
 )
 
 // Namespace is the namespace component of the fully qualified metric name.
-const Namespace = "gardener_extension_example"
+const Namespace = "gardener_extension_traefik"
 
 var (
-	// ActuatorOperationTotal is an example metric, which increments each
-	// time our extension actuator is being called.
+	// ActuatorOperationTotal counts each invocation of the traefik extension actuator.
 	ActuatorOperationTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: Namespace,
 			Name:      "actuator_operation_total",
-			Help:      "Total number of times our extension actuator did something",
+			Help:      "Total number of actuator operations for the traefik extension",
 		},
 		[]string{"cluster", "operation"},
 	)
 
-	// ActuatorOperationDurationSeconds is an example metric, which tracks
-	// the duration of execution for our extension actuator.
+	// ActuatorOperationDurationSeconds tracks the duration of each actuator operation.
 	ActuatorOperationDurationSeconds = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: Namespace,
 			Name:      "actuator_operation_duration_seconds",
-			Help:      "Duration of execution for our extension actuator",
+			Help:      "Duration in seconds of actuator operations for the traefik extension",
 		},
 		[]string{"cluster", "operation"},
 	)

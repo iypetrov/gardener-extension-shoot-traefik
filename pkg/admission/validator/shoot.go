@@ -70,10 +70,13 @@ func (v *shootValidator) Validate(ctx context.Context, newClient, old client.Obj
 // validateShoot validates that if the Traefik extension is enabled,
 // the shoot must have purpose "evaluation".
 func (v *shootValidator) validateShoot(shoot *gardencorev1beta1.Shoot) error {
-	// Check if the Traefik extension is configured
+	// Check if the Traefik extension is configured and enabled
 	hasTraefikExtension := false
 	for _, ext := range shoot.Spec.Extensions {
 		if ext.Type == ExtensionType {
+			if ext.Disabled != nil && *ext.Disabled {
+				return nil
+			}
 			hasTraefikExtension = true
 
 			break

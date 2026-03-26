@@ -24,3 +24,13 @@ const (
 	// that contains the DNSRecord for the Traefik ingress wildcard domain.
 	SeedManagedResourceName = "extension-traefik-ingress-dns"
 )
+
+// ValidLogLevels contains the set of log levels supported by Traefik.
+var ValidLogLevels = map[string]struct{}{
+	"DEBUG": {},
+	"INFO":  {},
+	"WARN":  {},
+	"ERROR": {},
+	"FATAL": {},
+	"PANIC": {},
+}

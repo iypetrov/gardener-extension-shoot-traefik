@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	extensionsconfigv1alpha1 "github.com/gardener/gardener/extensions/pkg/apis/config/v1alpha1"
 	extensionscontroller "github.com/gardener/gardener/extensions/pkg/controller"
@@ -177,9 +178,11 @@ func (a *Actuator) Reconcile(ctx context.Context, logger logr.Logger, ex *extens
 	// The cluster name is the same as the name of the namespace for our
 	// [extensionsv1alpha1.Extension] resource.
 	clusterName := ex.Namespace
+	start := time.Now()
 
 	defer func() {
 		metrics.ActuatorOperationTotal.WithLabelValues(clusterName, "reconcile").Inc()
+		metrics.ActuatorOperationDurationSeconds.WithLabelValues(clusterName, "reconcile").Set(time.Since(start).Seconds())
 	}()
 
 	logger.Info("reconciling traefik extension", "name", ex.Name, "cluster", clusterName)
@@ -227,19 +230,14 @@ func (a *Actuator) Reconcile(ctx context.Context, logger logr.Logger, ex *extens
 			if cfg.Spec.Replicas > 0 {
 				traefikConfig.Replicas = cfg.Spec.Replicas
 			}
-			if cfg.Spec.IngressClass != "" {
-				traefikConfig.IngressClass = cfg.Spec.IngressClass
-			}
 			if cfg.Spec.IngressProvider != "" {
 				traefikConfig.IngressProvider = cfg.Spec.IngressProvider
 			}
 			if cfg.Spec.LogLevel != "" {
+				if _, ok := traefik.ValidLogLevels[cfg.Spec.LogLevel]; !ok {
+					return fmt.Errorf("invalid traefik log level %q: must be one of DEBUG, INFO, WARN, ERROR, FATAL, PANIC", cfg.Spec.LogLevel)
+				}
 				traefikConfig.LogLevel = cfg.Spec.LogLevel
-			}
-
-			// Auto-set IngressClass to "nginx" for NGINX compatibility mode if not explicitly set
-			if cfg.Spec.IngressProvider == config.IngressProviderKubernetesIngressNGINX && cfg.Spec.IngressClass == "" {
-				traefikConfig.IngressClass = "nginx"
 			}
 		}
 	}
@@ -354,9 +352,11 @@ func lbAddressFromService(svc *corev1.Service) string {
 // is deleted first so that the DNS extension cleans up the actual DNS record.
 func (a *Actuator) Delete(ctx context.Context, logger logr.Logger, ex *extensionsv1alpha1.Extension) error {
 	clusterName := ex.Namespace
+	start := time.Now()
 
 	defer func() {
 		metrics.ActuatorOperationTotal.WithLabelValues(clusterName, "delete").Inc()
+		metrics.ActuatorOperationDurationSeconds.WithLabelValues(clusterName, "delete").Set(time.Since(start).Seconds())
 	}()
 
 	logger.Info("deleting traefik resources managed by extension", "cluster", clusterName)
@@ -391,9 +391,11 @@ func (a *Actuator) Delete(ctx context.Context, logger logr.Logger, ex *extension
 // record is still cleaned up normally.
 func (a *Actuator) ForceDelete(ctx context.Context, logger logr.Logger, ex *extensionsv1alpha1.Extension) error {
 	clusterName := ex.Namespace
+	start := time.Now()
 
 	defer func() {
 		metrics.ActuatorOperationTotal.WithLabelValues(clusterName, "force_delete").Inc()
+		metrics.ActuatorOperationDurationSeconds.WithLabelValues(clusterName, "force_delete").Set(time.Since(start).Seconds())
 	}()
 
 	logger.Info("shoot has been force-deleted, deleting traefik resources", "cluster", clusterName)
@@ -417,9 +419,11 @@ func (a *Actuator) ForceDelete(ctx context.Context, logger logr.Logger, ex *exte
 // Restore restores the resources managed by the extension [Actuator]. This
 // method implements the [extension.Actuator] interface.
 func (a *Actuator) Restore(ctx context.Context, logger logr.Logger, ex *extensionsv1alpha1.Extension) error {
-	// Increment our example metrics counter
+	start := time.Now()
+
 	defer func() {
 		metrics.ActuatorOperationTotal.WithLabelValues(ex.Namespace, "restore").Inc()
+		metrics.ActuatorOperationDurationSeconds.WithLabelValues(ex.Namespace, "restore").Set(time.Since(start).Seconds())
 	}()
 
 	return a.Reconcile(ctx, logger, ex)
@@ -434,9 +438,11 @@ func (a *Actuator) Restore(ctx context.Context, logger logr.Logger, ex *extensio
 // re-create them.
 func (a *Actuator) Migrate(ctx context.Context, logger logr.Logger, ex *extensionsv1alpha1.Extension) error {
 	clusterName := ex.Namespace
+	start := time.Now()
 
 	defer func() {
 		metrics.ActuatorOperationTotal.WithLabelValues(clusterName, "migrate").Inc()
+		metrics.ActuatorOperationDurationSeconds.WithLabelValues(clusterName, "migrate").Set(time.Since(start).Seconds())
 	}()
 
 	logger.Info("migrating traefik extension, cleaning up control-plane resources", "cluster", clusterName)

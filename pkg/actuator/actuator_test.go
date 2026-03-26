@@ -37,8 +37,7 @@ var _ = Describe("Actuator", Ordered, func() {
 		actuatorOpts   []actuator.Option
 		providerConfig = config.TraefikConfig{
 			Spec: config.TraefikConfigSpec{
-				Replicas:     1,
-				IngressClass: "traefik",
+				Replicas: 1,
 			},
 		}
 
@@ -281,8 +280,7 @@ var _ = Describe("Actuator", Ordered, func() {
 			// Create config without IngressProvider field
 			cfg := config.TraefikConfig{
 				Spec: config.TraefikConfigSpec{
-					Replicas:     2,
-					IngressClass: "traefik",
+					Replicas: 2,
 					// IngressProvider not specified
 				},
 			}
@@ -303,7 +301,6 @@ var _ = Describe("Actuator", Ordered, func() {
 			cfg := config.TraefikConfig{
 				Spec: config.TraefikConfigSpec{
 					Replicas:        2,
-					IngressClass:    "traefik",
 					IngressProvider: config.IngressProviderKubernetesIngress,
 				},
 			}
@@ -324,7 +321,6 @@ var _ = Describe("Actuator", Ordered, func() {
 			cfg := config.TraefikConfig{
 				Spec: config.TraefikConfigSpec{
 					Replicas:        2,
-					IngressClass:    "nginx",
 					IngressProvider: config.IngressProviderKubernetesIngressNGINX,
 				},
 			}
@@ -341,12 +337,11 @@ var _ = Describe("Actuator", Ordered, func() {
 			Expect(act.Reconcile(ctx, logger, extResource)).To(Succeed())
 		})
 
-		It("should auto-set IngressClass to 'nginx' for KubernetesIngressNGINX when not specified", func() {
+		It("should auto-derive ingress class for KubernetesIngressNGINX", func() {
 			cfg := config.TraefikConfig{
 				Spec: config.TraefikConfigSpec{
 					Replicas:        2,
 					IngressProvider: config.IngressProviderKubernetesIngressNGINX,
-					// IngressClass not specified - should default to "nginx"
 				},
 			}
 			cfgData, err := json.Marshal(cfg)
@@ -366,7 +361,6 @@ var _ = Describe("Actuator", Ordered, func() {
 			cfg := config.TraefikConfig{
 				Spec: config.TraefikConfigSpec{
 					Replicas:        3,
-					IngressClass:    "custom-traefik",
 					IngressProvider: config.IngressProviderKubernetesIngressNGINX,
 				},
 			}

@@ -32,7 +32,6 @@ spec:
         kind: TraefikConfig
         spec:
           ingressProvider: KubernetesIngress
-          ingressClass: traefik
 ```
 
 **When to use:**
@@ -61,10 +60,9 @@ spec:
         kind: TraefikConfig
         spec:
           ingressProvider: KubernetesIngressNGINX
-          ingressClass: nginx  # Can use 'nginx' to maintain compatibility
 ```
 
-**Note:** When `ingressProvider: KubernetesIngressNGINX` is set without specifying `ingressClass`, the IngressClass name is automatically set to `"nginx"` for compatibility.
+The ingress class is automatically set to `"nginx"` when using this provider.
 
 **When to use:**
 - Migrating from NGINX Ingress Controller to Traefik
@@ -95,67 +93,28 @@ spec:
         kind: TraefikConfig
         spec:
           ingressProvider: KubernetesIngressNGINX
-          ingressClass: nginx  # Keep using 'nginx' class name
           replicas: 2
 ```
 
-**Note:** The `ingressClass: nginx` field is optional when using `KubernetesIngressNGINX` - if not specified, it defaults to `"nginx"` automatically.
+The ingress class is automatically set to `"nginx"` for compatibility with existing Ingress resources.
 
-**Note:** When using `KubernetesIngressNGINX` provider, the IngressClass resource is created with `controller: k8s.io/ingress-nginx` to maintain compatibility with existing Ingress resources that expect the NGINX controller name. Traefik will handle these Ingresses using its NGINX-compatible provider.
-
-### Step 2: Update IngressClass References (Optional)
-
-If you want to use a different ingress class name:
-
-```yaml
-spec:
-  ingressProvider: KubernetesIngressNGINX
-  ingressClass: traefik  # Use new name
-```
-
-Then update your Ingress resources:
-
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: my-app
-  annotations:
-    # NGINX annotations will be translated by Traefik
-    nginx.ingress.kubernetes.io/rewrite-target: /
-spec:
-  ingressClassName: traefik  # Update to match new class name
-  rules:
-    - host: myapp.example.com
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: my-app
-                port:
-                  number: 80
-```
-
-### Step 3: Test and Validate
+### Step 2: Verify Ingress Resources
 
 1. Deploy your application and Ingress resources
 2. Verify that traffic is routed correctly
 3. Check Traefik logs for any warnings about unsupported annotations
 4. Test all critical paths and features
 
-### Step 4: Transition to Native Traefik (Optional)
+### Step 3: Transition to Native Traefik (Optional)
 
 Once you've validated that everything works with the NGINX-compatible provider, you can optionally transition to the standard provider and use Traefik-native annotations for better integration:
 
 ```yaml
 spec:
   ingressProvider: KubernetesIngress  # Switch to standard provider
-  ingressClass: traefik
 ```
 
-Update your Ingress annotations to use Traefik-native annotations. See [Traefik Ingress Documentation](https://doc.traefik.io/traefik/reference/routing-configuration/kubernetes/ingress/) for available annotations.
+The ingress class will automatically change to `"traefik"`. Update your Ingress resources accordingly and switch to Traefik-native annotations. See [Traefik Ingress Documentation](https://doc.traefik.io/traefik/reference/routing-configuration/kubernetes/ingress/) for available annotations.
 
 ## RBAC Permissions
 
@@ -175,9 +134,7 @@ Includes all of the above plus:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `spec.ingressProvider` | string | `KubernetesIngress` | Ingress provider type: `KubernetesIngress` or `KubernetesIngressNGINX` |
-| `spec.ingressClass` | string | `traefik` | Ingress class name that Traefik will handle |
-| `spec.image` | string | from imagevector | Traefik container image |
+| `spec.ingressProvider` | string | `KubernetesIngress` | Ingress provider type: `KubernetesIngress` (ingress class: `traefik`) or `KubernetesIngressNGINX` (ingress class: `nginx`) |
 | `spec.replicas` | int32 | `2` | Number of Traefik replicas |
 
 ## Examples
@@ -198,7 +155,6 @@ spec:
         kind: TraefikConfig
         spec:
           ingressProvider: KubernetesIngress
-          ingressClass: traefik
           replicas: 3
 ```
 
@@ -218,7 +174,6 @@ spec:
         kind: TraefikConfig
         spec:
           ingressProvider: KubernetesIngressNGINX
-          ingressClass: nginx
           replicas: 2
 ```
 

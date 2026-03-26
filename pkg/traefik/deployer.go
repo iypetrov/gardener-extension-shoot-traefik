@@ -14,14 +14,13 @@ import (
 	extensionsv1alpha1helper "github.com/gardener/gardener/pkg/api/extensions/v1alpha1/helper"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
-	resourcesv1alpha1 "github.com/gardener/gardener/pkg/apis/resources/v1alpha1"
-	"github.com/gardener/gardener/pkg/utils"
 	"github.com/gardener/gardener/pkg/utils/imagevector"
 	"github.com/gardener/gardener/pkg/utils/managedresources"
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,12 +32,47 @@ import (
 	"github.com/gardener/gardener-extension-shoot-traefik/pkg/apis/config"
 )
 
+const (
+	// ManagedResourceDeletionTimeout is the maximum duration to wait for a
+	// ManagedResource to be deleted before timing out.
+	ManagedResourceDeletionTimeout = 2 * time.Minute
+)
+
+var (
+	// shootScheme is a shared scheme for encoding shoot-cluster resources.
+	shootScheme *runtime.Scheme
+	// shootCodec is a shared codec for encoding shoot-cluster resources.
+	shootCodec runtime.Codec
+	// extensionsScheme is a shared scheme for encoding extension resources (e.g. DNSRecord).
+	extensionsScheme *runtime.Scheme
+	// extensionsCodec is a shared codec for encoding extension resources.
+	extensionsCodec runtime.Codec
+)
+
+func init() {
+	shootScheme = runtime.NewScheme()
+	_ = corev1.AddToScheme(shootScheme)
+	_ = appsv1.AddToScheme(shootScheme)
+	_ = rbacv1.AddToScheme(shootScheme)
+	_ = networkingv1.AddToScheme(shootScheme)
+	_ = policyv1.AddToScheme(shootScheme)
+	shootCodec = serializer.NewCodecFactory(shootScheme).LegacyCodec(
+		corev1.SchemeGroupVersion,
+		appsv1.SchemeGroupVersion,
+		rbacv1.SchemeGroupVersion,
+		networkingv1.SchemeGroupVersion,
+		policyv1.SchemeGroupVersion,
+	)
+
+	extensionsScheme = runtime.NewScheme()
+	_ = extensionsv1alpha1.AddToScheme(extensionsScheme)
+	extensionsCodec = serializer.NewCodecFactory(extensionsScheme).LegacyCodec(extensionsv1alpha1.SchemeGroupVersion)
+}
+
 // Config holds the configuration for the Traefik deployment.
 type Config struct {
 	// Replicas is the number of Traefik replicas.
 	Replicas int32
-	// IngressClass is the ingress class name that Traefik will handle.
-	IngressClass string
 	// IngressProvider specifies which Kubernetes Ingress provider to use.
 	IngressProvider config.IngressProviderType
 	// LogLevel sets the Traefik log level.
@@ -49,16 +83,24 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		Replicas:        2,
-		IngressClass:    "traefik",
 		IngressProvider: config.IngressProviderKubernetesIngress,
 		LogLevel:        "INFO",
 	}
 }
 
+// IngressClassName returns the ingress class name derived from the configured
+// IngressProvider. KubernetesIngressNGINX uses "nginx", all others use "traefik".
+func (c Config) IngressClassName() string {
+	if c.IngressProvider == config.IngressProviderKubernetesIngressNGINX {
+		return "nginx"
+	}
+
+	return "traefik"
+}
+
 // Deployer handles deploying Traefik resources to shoot clusters.
 type Deployer struct {
 	client      client.Client
-	decoder     runtime.Decoder
 	logger      logr.Logger
 	config      Config
 	imageVector imagevector.ImageVector
@@ -66,15 +108,8 @@ type Deployer struct {
 
 // NewDeployer creates a new Deployer.
 func NewDeployer(c client.Client, logger logr.Logger, cfg Config, imageVector imagevector.ImageVector) *Deployer {
-	scheme := runtime.NewScheme()
-	_ = corev1.AddToScheme(scheme)
-	_ = appsv1.AddToScheme(scheme)
-	_ = rbacv1.AddToScheme(scheme)
-	_ = networkingv1.AddToScheme(scheme)
-
 	return &Deployer{
 		client:      c,
-		decoder:     serializer.NewCodecFactory(scheme).UniversalDecoder(),
 		logger:      logger.WithName("traefik-deployer"),
 		config:      cfg,
 		imageVector: imageVector,
@@ -91,67 +126,10 @@ func (d *Deployer) Deploy(ctx context.Context, namespace string) error {
 		return fmt.Errorf("failed to generate traefik resources: %w", err)
 	}
 
-	// Compute checksum of resources to ensure changes are detected
-	checksum := utils.ComputeSecretChecksum(resources)
-
-	// Create the secret containing the manifests
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      ManagedResourceName,
-			Namespace: namespace,
-			Annotations: map[string]string{
-				"resources.gardener.cloud/data-checksum": checksum,
-			},
-		},
-		Type: corev1.SecretTypeOpaque,
-		Data: resources,
-	}
-
-	if err := d.client.Create(ctx, secret); err != nil {
-		if client.IgnoreAlreadyExists(err) != nil {
-			return fmt.Errorf("failed to create secret: %w", err)
-		}
-		// Update existing secret - fetch first to get resourceVersion
-		existing := &corev1.Secret{}
-		if err := d.client.Get(ctx, client.ObjectKeyFromObject(secret), existing); err != nil {
-			return fmt.Errorf("failed to get existing secret: %w", err)
-		}
-		secret.ResourceVersion = existing.ResourceVersion
-		if err := d.client.Update(ctx, secret); err != nil {
-			return fmt.Errorf("failed to update secret: %w", err)
-		}
-	}
-
-	// Create the ManagedResource
-	managedResource := &resourcesv1alpha1.ManagedResource{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      ManagedResourceName,
-			Namespace: namespace,
-		},
-		Spec: resourcesv1alpha1.ManagedResourceSpec{
-			SecretRefs: []corev1.LocalObjectReference{
-				{Name: ManagedResourceName},
-			},
-			InjectLabels: map[string]string{
-				"shoot.gardener.cloud/no-cleanup": "true",
-			},
-			KeepObjects: new(false),
-		},
-	}
-
-	if err := d.client.Create(ctx, managedResource); err != nil {
-		if client.IgnoreAlreadyExists(err) != nil {
-			return fmt.Errorf("failed to create managed resource: %w", err)
-		}
-		// Update existing managed resource - fetch first to get resourceVersion
-		existing := &resourcesv1alpha1.ManagedResource{}
-		if err := d.client.Get(ctx, client.ObjectKeyFromObject(managedResource), existing); err != nil {
-			return fmt.Errorf("failed to get existing managed resource: %w", err)
-		}
-		managedResource.ResourceVersion = existing.ResourceVersion
-		if err := d.client.Update(ctx, managedResource); err != nil {
-			return fmt.Errorf("failed to update managed resource: %w", err)
-		}
+	// CreateForShoot handles atomic create-or-update of both the backing
+	// Secret and the ManagedResource, including the no-cleanup inject label.
+	if err := managedresources.CreateForShoot(ctx, d.client, namespace, ManagedResourceName, ManagedResourceName, false, resources); err != nil {
+		return fmt.Errorf("failed to create or update managed resource: %w", err)
 	}
 
 	d.logger.Info("successfully deployed traefik", "namespace", namespace)
@@ -187,34 +165,15 @@ func (d *Deployer) DeleteKeepingObjects(ctx context.Context, namespace string) e
 func (d *Deployer) deleteManagedResource(ctx context.Context, namespace string) error {
 	d.logger.Info("deleting traefik from shoot cluster", "namespace", namespace)
 
-	managedResource := &resourcesv1alpha1.ManagedResource{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      ManagedResourceName,
-			Namespace: namespace,
-		},
-	}
-
-	if err := d.client.Delete(ctx, managedResource); client.IgnoreNotFound(err) != nil {
+	if err := managedresources.Delete(ctx, d.client, namespace, ManagedResourceName, true); err != nil {
 		return fmt.Errorf("failed to delete managed resource: %w", err)
 	}
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	timeoutCtx, cancel := context.WithTimeout(ctx, ManagedResourceDeletionTimeout)
 	defer cancel()
 
 	if err := managedresources.WaitUntilDeleted(timeoutCtx, d.client, namespace, ManagedResourceName); err != nil {
 		return fmt.Errorf("timed out waiting for managed resource to be deleted: %w", err)
-	}
-
-	// Safe to remove the backing secret now that the ManagedResource is gone.
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      ManagedResourceName,
-			Namespace: namespace,
-		},
-	}
-
-	if err := d.client.Delete(ctx, secret); client.IgnoreNotFound(err) != nil {
-		return fmt.Errorf("failed to delete secret: %w", err)
 	}
 
 	d.logger.Info("successfully deleted traefik", "namespace", namespace)
@@ -258,13 +217,7 @@ func (d *Deployer) DeployDNSRecord(ctx context.Context, namespace, lbAddress, dn
 		},
 	}
 
-	scheme := runtime.NewScheme()
-	if err := extensionsv1alpha1.AddToScheme(scheme); err != nil {
-		return fmt.Errorf("failed to set up extensions scheme for DNS record encoding: %w", err)
-	}
-	codec := serializer.NewCodecFactory(scheme).LegacyCodec(extensionsv1alpha1.SchemeGroupVersion)
-
-	dnsRecordData, err := runtime.Encode(codec, dnsRecord)
+	dnsRecordData, err := runtime.Encode(extensionsCodec, dnsRecord)
 	if err != nil {
 		return fmt.Errorf("failed to encode DNSRecord: %w", err)
 	}
@@ -300,7 +253,7 @@ func (d *Deployer) DeleteDNSRecord(ctx context.Context, namespace string) error 
 		return fmt.Errorf("failed to delete seed ManagedResource for DNSRecord: %w", err)
 	}
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	timeoutCtx, cancel := context.WithTimeout(ctx, ManagedResourceDeletionTimeout)
 	defer cancel()
 
 	if err := managedresources.WaitUntilDeleted(timeoutCtx, d.client, namespace, SeedManagedResourceName); err != nil {
@@ -336,24 +289,11 @@ func (d *Deployer) DeleteDNSRecord(ctx context.Context, namespace string) error 
 
 // generateResources generates all Kubernetes resources for Traefik.
 func (d *Deployer) generateResources() (map[string][]byte, error) {
-	scheme := runtime.NewScheme()
-	_ = corev1.AddToScheme(scheme)
-	_ = appsv1.AddToScheme(scheme)
-	_ = rbacv1.AddToScheme(scheme)
-	_ = networkingv1.AddToScheme(scheme)
-
-	codec := serializer.NewCodecFactory(scheme).LegacyCodec(
-		corev1.SchemeGroupVersion,
-		appsv1.SchemeGroupVersion,
-		rbacv1.SchemeGroupVersion,
-		networkingv1.SchemeGroupVersion,
-	)
-
 	resources := make(map[string][]byte)
 
 	// ServiceAccount
 	sa := d.serviceAccount()
-	saData, err := runtime.Encode(codec, sa)
+	saData, err := runtime.Encode(shootCodec, sa)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode service account: %w", err)
 	}
@@ -361,7 +301,7 @@ func (d *Deployer) generateResources() (map[string][]byte, error) {
 
 	// ClusterRole
 	cr := d.clusterRole()
-	crData, err := runtime.Encode(codec, cr)
+	crData, err := runtime.Encode(shootCodec, cr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode cluster role: %w", err)
 	}
@@ -369,7 +309,7 @@ func (d *Deployer) generateResources() (map[string][]byte, error) {
 
 	// ClusterRoleBinding
 	crb := d.clusterRoleBinding()
-	crbData, err := runtime.Encode(codec, crb)
+	crbData, err := runtime.Encode(shootCodec, crb)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode cluster role binding: %w", err)
 	}
@@ -380,7 +320,7 @@ func (d *Deployer) generateResources() (map[string][]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create deployment: %w", err)
 	}
-	deployData, err := runtime.Encode(codec, deploy)
+	deployData, err := runtime.Encode(shootCodec, deploy)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode deployment: %w", err)
 	}
@@ -388,7 +328,7 @@ func (d *Deployer) generateResources() (map[string][]byte, error) {
 
 	// Service
 	svc := d.service()
-	svcData, err := runtime.Encode(codec, svc)
+	svcData, err := runtime.Encode(shootCodec, svc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode service: %w", err)
 	}
@@ -396,7 +336,7 @@ func (d *Deployer) generateResources() (map[string][]byte, error) {
 
 	// IngressClass
 	ic := d.ingressClass()
-	icData, err := runtime.Encode(codec, ic)
+	icData, err := runtime.Encode(shootCodec, ic)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode ingress class: %w", err)
 	}
@@ -404,11 +344,19 @@ func (d *Deployer) generateResources() (map[string][]byte, error) {
 
 	// NetworkPolicy
 	np := d.networkPolicy()
-	npData, err := runtime.Encode(codec, np)
+	npData, err := runtime.Encode(shootCodec, np)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode network policy: %w", err)
 	}
 	resources["networkpolicy.yaml"] = npData
+
+	// PodDisruptionBudget
+	pdb := d.podDisruptionBudget()
+	pdbData, err := runtime.Encode(shootCodec, pdb)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode pod disruption budget: %w", err)
+	}
+	resources["poddisruptionbudget.yaml"] = pdbData
 
 	return resources, nil
 }
@@ -456,8 +404,19 @@ func (d *Deployer) clusterRole() *rbacv1.ClusterRole {
 		},
 		{
 			APIGroups: []string{"traefik.io"},
-			Resources: []string{"*"},
-			Verbs:     []string{"get", "list", "watch"},
+			Resources: []string{
+				"ingressroutes",
+				"ingressroutetcps",
+				"ingressrouteudps",
+				"middlewares",
+				"middlewaretcps",
+				"serverstransports",
+				"serverstransporttcps",
+				"tlsoptions",
+				"tlsstores",
+				"traefikservices",
+			},
+			Verbs: []string{"get", "list", "watch"},
 		},
 	}
 
@@ -554,21 +513,19 @@ func (d *Deployer) deployment() (*appsv1.Deployment, error) {
 		fmt.Sprintf("--log.level=%s", d.config.LogLevel),
 	}
 
-	// Configure the appropriate Kubernetes Ingress provider
-	switch d.config.IngressProvider {
-	case config.IngressProviderKubernetesIngressNGINX:
-		// Enable NGINX-compatible Ingress provider for migration scenarios
-		args = append(args,
-			"--providers.kubernetesingressnginx=true",
-			fmt.Sprintf("--providers.kubernetesingressnginx.ingressclass=%s", d.config.IngressClass),
-		)
-	case config.IngressProviderKubernetesIngress:
-		fallthrough
-	default:
-		// Enable standard Kubernetes Ingress provider (default)
+	ingressClass := d.config.IngressClassName()
+
+	if d.config.IngressProvider == config.IngressProviderKubernetesIngress || d.config.IngressProvider == "" {
 		args = append(args,
 			"--providers.kubernetesingress=true",
-			fmt.Sprintf("--providers.kubernetesingress.ingressclass=%s", d.config.IngressClass),
+			fmt.Sprintf("--providers.kubernetesingress.ingressclass=%s", ingressClass),
+		)
+	}
+
+	if d.config.IngressProvider == config.IngressProviderKubernetesIngressNGINX {
+		args = append(args,
+			"--providers.kubernetesingressnginx=true",
+			fmt.Sprintf("--providers.kubernetesingressnginx.ingressclass=%s", ingressClass),
 		)
 	}
 
@@ -741,7 +698,10 @@ func (d *Deployer) service() *corev1.Service {
 }
 
 func (d *Deployer) ingressClass() *networkingv1.IngressClass {
-	// Set the controller based on the ingress provider type
+	// Use the appropriate controller value based on the ingress provider.
+	// The kubernetesingress provider filters IngressClasses by "traefik.io/ingress-controller".
+	// The kubernetesingressnginx provider expects "k8s.io/ingress-nginx" to be
+	// compatible with existing Ingress resources that were created for nginx-ingress-controller.
 	controller := "traefik.io/ingress-controller"
 	if d.config.IngressProvider == config.IngressProviderKubernetesIngressNGINX {
 		controller = "k8s.io/ingress-nginx"
@@ -753,7 +713,7 @@ func (d *Deployer) ingressClass() *networkingv1.IngressClass {
 			Kind:       "IngressClass",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: d.config.IngressClass,
+			Name: d.config.IngressClassName(),
 			Labels: map[string]string{
 				"app.kubernetes.io/name":       "traefik",
 				"app.kubernetes.io/instance":   "traefik",
@@ -762,6 +722,9 @@ func (d *Deployer) ingressClass() *networkingv1.IngressClass {
 			Annotations: map[string]string{
 				// Make traefik the default ingress class as a replacement for nginx
 				"ingressclass.kubernetes.io/is-default-class": "true",
+				// spec.controller is immutable — tell resource-manager to delete
+				// and recreate the IngressClass if the value changes.
+				"resources.gardener.cloud/delete-on-invalid-update": "true",
 			},
 		},
 		Spec: networkingv1.IngressClassSpec{
@@ -817,6 +780,33 @@ func (d *Deployer) networkPolicy() *networkingv1.NetworkPolicy {
 							PodSelector:       &metav1.LabelSelector{},
 						},
 					},
+				},
+			},
+		},
+	}
+}
+
+func (d *Deployer) podDisruptionBudget() *policyv1.PodDisruptionBudget {
+	return &policyv1.PodDisruptionBudget{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "policy/v1",
+			Kind:       "PodDisruptionBudget",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      DeploymentName,
+			Namespace: Namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/name":       "traefik",
+				"app.kubernetes.io/instance":   "traefik",
+				"app.kubernetes.io/managed-by": "gardener",
+			},
+		},
+		Spec: policyv1.PodDisruptionBudgetSpec{
+			MinAvailable: &intstr.IntOrString{Type: intstr.Int, IntVal: 1},
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"app.kubernetes.io/name":     "traefik",
+					"app.kubernetes.io/instance": "traefik",
 				},
 			},
 		},

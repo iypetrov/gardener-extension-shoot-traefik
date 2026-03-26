@@ -26,11 +26,6 @@ type TraefikConfigSpec struct {
 	// Defaults to 2 if not specified.
 	Replicas int32 `json:"replicas,omitempty"`
 
-	// IngressClass is the ingress class name that Traefik will handle.
-	// Defaults to "traefik" if not specified.
-	// This replaces the deprecated nginx ingress class.
-	IngressClass string `json:"ingressClass,omitempty"`
-
 	// IngressProvider specifies which Kubernetes Ingress provider to use.
 	// Valid values are:
 	// - "KubernetesIngress" (default): Standard Kubernetes Ingress provider

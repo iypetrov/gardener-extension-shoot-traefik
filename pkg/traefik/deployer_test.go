@@ -53,8 +53,7 @@ func TestDeployment_ImageOverride(t *testing.T) {
 			client := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 			config := Config{
-				Replicas:     2,
-				IngressClass: "traefik",
+				Replicas: 2,
 			}
 
 			deployer := NewDeployer(client, logr.Discard(), config, tt.imageVector)
@@ -109,14 +108,12 @@ func TestDeployment_IngressProvider(t *testing.T) {
 	tests := []struct {
 		name            string
 		ingressProvider config.IngressProviderType
-		ingressClass    string
 		expectedArgs    []string
 		notExpectedArgs []string
 	}{
 		{
 			name:            "KubernetesIngress provider",
 			ingressProvider: config.IngressProviderKubernetesIngress,
-			ingressClass:    "traefik",
 			expectedArgs: []string{
 				"--providers.kubernetesingress=true",
 				"--providers.kubernetesingress.ingressclass=traefik",
@@ -128,38 +125,21 @@ func TestDeployment_IngressProvider(t *testing.T) {
 		{
 			name:            "KubernetesIngressNGINX provider",
 			ingressProvider: config.IngressProviderKubernetesIngressNGINX,
-			ingressClass:    "nginx",
 			expectedArgs: []string{
 				"--providers.kubernetesingressnginx=true",
 				"--providers.kubernetesingressnginx.ingressclass=nginx",
 			},
-			notExpectedArgs: []string{
-				"--providers.kubernetesingress=true",
-				"--providers.kubernetesingress.ingressclass",
-			},
+			notExpectedArgs: []string{},
 		},
 		{
 			name:            "empty provider defaults to KubernetesIngress",
 			ingressProvider: "",
-			ingressClass:    "traefik",
 			expectedArgs: []string{
 				"--providers.kubernetesingress=true",
 				"--providers.kubernetesingress.ingressclass=traefik",
 			},
 			notExpectedArgs: []string{
 				"--providers.kubernetesingressnginx",
-			},
-		},
-		{
-			name:            "NGINX provider with custom class",
-			ingressProvider: config.IngressProviderKubernetesIngressNGINX,
-			ingressClass:    "custom-nginx",
-			expectedArgs: []string{
-				"--providers.kubernetesingressnginx=true",
-				"--providers.kubernetesingressnginx.ingressclass=custom-nginx",
-			},
-			notExpectedArgs: []string{
-				"--providers.kubernetesingress=true",
 			},
 		},
 	}
@@ -179,7 +159,6 @@ func TestDeployment_IngressProvider(t *testing.T) {
 
 			config := Config{
 				Replicas:        2,
-				IngressClass:    tt.ingressClass,
 				IngressProvider: tt.ingressProvider,
 			}
 
@@ -272,7 +251,6 @@ func TestDeployment_LogLevel(t *testing.T) {
 
 			config := Config{
 				Replicas:        2,
-				IngressClass:    "traefik",
 				IngressProvider: config.IngressProviderKubernetesIngress,
 				LogLevel:        tt.logLevel,
 			}
@@ -328,7 +306,6 @@ func TestClusterRole_RBAC_Permissions(t *testing.T) {
 
 			config := Config{
 				Replicas:        2,
-				IngressClass:    "traefik",
 				IngressProvider: tt.ingressProvider,
 			}
 
@@ -400,8 +377,8 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("expected default replicas to be 2, got %d", defaultCfg.Replicas)
 	}
 
-	if defaultCfg.IngressClass != "traefik" {
-		t.Errorf("expected default ingress class to be 'traefik', got %q", defaultCfg.IngressClass)
+	if defaultCfg.IngressClassName() != "traefik" {
+		t.Errorf("expected default ingress class name to be 'traefik', got %q", defaultCfg.IngressClassName())
 	}
 
 	if defaultCfg.IngressProvider != config.IngressProviderKubernetesIngress {
@@ -413,32 +390,26 @@ func TestIngressClass_Controller(t *testing.T) {
 	tests := []struct {
 		name               string
 		ingressProvider    config.IngressProviderType
-		ingressClass       string
+		expectedName       string
 		expectedController string
 	}{
 		{
-			name:               "KubernetesIngress provider - traefik controller",
+			name:               "KubernetesIngress provider - ingress class name is traefik",
 			ingressProvider:    config.IngressProviderKubernetesIngress,
-			ingressClass:       "traefik",
+			expectedName:       "traefik",
 			expectedController: "traefik.io/ingress-controller",
 		},
 		{
-			name:               "KubernetesIngressNGINX provider - nginx controller",
+			name:               "KubernetesIngressNGINX provider - ingress class name is nginx",
 			ingressProvider:    config.IngressProviderKubernetesIngressNGINX,
-			ingressClass:       "nginx",
+			expectedName:       "nginx",
 			expectedController: "k8s.io/ingress-nginx",
 		},
 		{
-			name:               "empty provider defaults to traefik controller",
+			name:               "empty provider defaults to traefik ingress class",
 			ingressProvider:    "",
-			ingressClass:       "traefik",
+			expectedName:       "traefik",
 			expectedController: "traefik.io/ingress-controller",
-		},
-		{
-			name:               "NGINX provider with custom class name",
-			ingressProvider:    config.IngressProviderKubernetesIngressNGINX,
-			ingressClass:       "custom-nginx",
-			expectedController: "k8s.io/ingress-nginx",
 		},
 	}
 
@@ -449,7 +420,6 @@ func TestIngressClass_Controller(t *testing.T) {
 
 			config := Config{
 				Replicas:        2,
-				IngressClass:    tt.ingressClass,
 				IngressProvider: tt.ingressProvider,
 			}
 
@@ -460,8 +430,8 @@ func TestIngressClass_Controller(t *testing.T) {
 				t.Fatal("expected ingress class but got nil")
 			}
 
-			if ingressClass.Name != tt.ingressClass {
-				t.Errorf("expected ingress class name %q, got %q", tt.ingressClass, ingressClass.Name)
+			if ingressClass.Name != tt.expectedName {
+				t.Errorf("expected ingress class name %q, got %q", tt.expectedName, ingressClass.Name)
 			}
 
 			if ingressClass.Spec.Controller != tt.expectedController {
@@ -471,6 +441,42 @@ func TestIngressClass_Controller(t *testing.T) {
 			// Verify it's marked as default class
 			if ingressClass.Annotations["ingressclass.kubernetes.io/is-default-class"] != "true" {
 				t.Error("expected ingress class to be marked as default")
+			}
+		})
+	}
+}
+
+func TestIngressClassName(t *testing.T) {
+	tests := []struct {
+		name            string
+		ingressProvider config.IngressProviderType
+		expected        string
+	}{
+		{
+			name:            "KubernetesIngress returns traefik",
+			ingressProvider: config.IngressProviderKubernetesIngress,
+			expected:        "traefik",
+		},
+		{
+			name:            "KubernetesIngressNGINX returns nginx",
+			ingressProvider: config.IngressProviderKubernetesIngressNGINX,
+			expected:        "nginx",
+		},
+		{
+			name:            "empty provider returns traefik",
+			ingressProvider: "",
+			expected:        "traefik",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Config{
+				IngressProvider: tt.ingressProvider,
+			}
+
+			if got := cfg.IngressClassName(); got != tt.expected {
+				t.Errorf("IngressClassName() = %q, want %q", got, tt.expected)
 			}
 		})
 	}

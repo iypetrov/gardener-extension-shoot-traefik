@@ -21,23 +21,20 @@ spec:
           # Optional: Number of Traefik replicas
           replicas: 2
           
-          # Optional: Ingress class name (default: "traefik")
-          ingressClass: traefik
-          
           # Optional: Log level (default: "INFO")
           # Valid values: DEBUG, INFO, WARN, ERROR, FATAL, PANIC
           # logLevel: INFO
           
           # Optional: Ingress provider type (default: "KubernetesIngress")
           # Valid values:
-          # - "KubernetesIngress": Standard Kubernetes Ingress provider
-          # - "KubernetesIngressNGINX": NGINX-compatible provider with support for NGINX annotations
+          # - "KubernetesIngress": Standard Kubernetes Ingress provider (ingress class: "traefik")
+          # - "KubernetesIngressNGINX": NGINX-compatible provider with support for NGINX annotations (ingress class: "nginx")
           #
           # Use KubernetesIngressNGINX when migrating from NGINX Ingress Controller to maintain
           # compatibility with existing NGINX-specific annotations.
           # ingressProvider: KubernetesIngress
           #
-          # Example for NGINX-compatible mode (ingressClass defaults to "nginx" when not specified):
+          # Example for NGINX-compatible mode:
           # ingressProvider: KubernetesIngressNGINX
   cloudProfile:
     name: local
