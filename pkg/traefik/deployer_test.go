@@ -117,6 +117,7 @@ func TestDeployment_IngressProvider(t *testing.T) {
 			expectedArgs: []string{
 				"--providers.kubernetesingress=true",
 				"--providers.kubernetesingress.ingressclass=traefik",
+				"--providers.kubernetesingress.ingressendpoint.publishedservice=kube-system/traefik",
 			},
 			notExpectedArgs: []string{
 				"--providers.kubernetesingressnginx",
@@ -128,8 +129,11 @@ func TestDeployment_IngressProvider(t *testing.T) {
 			expectedArgs: []string{
 				"--providers.kubernetesingressnginx=true",
 				"--providers.kubernetesingressnginx.ingressclass=nginx",
+				"--providers.kubernetesingressnginx.publishservice=kube-system/traefik",
 			},
-			notExpectedArgs: []string{},
+			notExpectedArgs: []string{
+				"--experimental.kubernetesingressnginx=true",
+			},
 		},
 		{
 			name:            "empty provider defaults to KubernetesIngress",

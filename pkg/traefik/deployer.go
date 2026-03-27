@@ -519,13 +519,16 @@ func (d *Deployer) deployment() (*appsv1.Deployment, error) {
 		args = append(args,
 			"--providers.kubernetesingress=true",
 			fmt.Sprintf("--providers.kubernetesingress.ingressclass=%s", ingressClass),
+			"--providers.kubernetesingress.ingressendpoint.publishedservice=kube-system/traefik",
 		)
 	}
 
 	if d.config.IngressProvider == config.IngressProviderKubernetesIngressNGINX {
+		// Starting with Traefik v3.6.2 the KubernetesIngressNGINX provider is no longer experimental
 		args = append(args,
 			"--providers.kubernetesingressnginx=true",
 			fmt.Sprintf("--providers.kubernetesingressnginx.ingressclass=%s", ingressClass),
+			"--providers.kubernetesingressnginx.publishservice=kube-system/traefik",
 		)
 	}
 

@@ -162,6 +162,15 @@ test:  ## Start envtest and run the unit tests.
 			-covermode=atomic \
 			$(shell $(GOCMD) list ./pkg/... | grep -v $(GO_MODULE)/pkg/apis)
 
+.PHONY: test-e2e
+test-e2e:  ## Run end-to-end tests against a Gardener landscape (requires KUBECONFIG).
+	@echo "Running e2e tests ..."
+	@$(GOCMD) test \
+		-v \
+		-timeout 120m \
+		-count=1 \
+		./test/e2e/...
+
 .PHONY: docker-build
 docker-build:  ## Build the extension Docker image.
 	@docker build \
