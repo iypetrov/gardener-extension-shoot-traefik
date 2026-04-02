@@ -32,7 +32,7 @@ endif
 
 # Name and version of the Gardener extension.
 EXTENSION_NAME ?= gardener-extension-shoot-traefik
-EXTENSION_TYPE ?= traefik
+EXTENSION_TYPE ?= shoot-traefik
 
 # Name for the extension image
 IMAGE ?= europe-docker.pkg.dev/gardener-project/public/gardener/extensions/$(EXTENSION_NAME)
