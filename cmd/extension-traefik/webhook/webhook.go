@@ -214,7 +214,7 @@ func New() *cli.Command {
 			&cli.StringFlag{
 				Name:        "extension-name",
 				Usage:       "name of the gardener extension",
-				Value:       "gardener-extension-shoot-traefik-admission",
+				Value:       "gardener-extension-admission-traefik",
 				Sources:     cli.EnvVars("EXTENSION_NAME"),
 				Destination: &flags.extensionName,
 			},
@@ -248,7 +248,7 @@ func New() *cli.Command {
 			&cli.StringFlag{
 				Name:        "leader-election-id",
 				Usage:       "the leader election id to use, if leader election is enabled",
-				Value:       "gardener-extension-shoot-traefik-admission",
+				Value:       "gardener-extension-admission-traefik",
 				Sources:     cli.EnvVars("LEADER_ELECTION_ID"),
 				Destination: &flags.leaderElectionID,
 			},
