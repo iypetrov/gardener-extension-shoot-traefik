@@ -38,7 +38,8 @@ spec:
         command:
         - /usr/local/bin/extension-traefik
         - webhook
-        - --webhook-config-server-port={{ .Values.webhookConfig.serverPort }}
+        - --extension-name={{ include "name" . }}
+        - --webhook-server-port={{ .Values.webhookConfig.serverPort }}
         {{- if .Values.gardener.virtualCluster.enabled }}
         - --webhook-config-mode=url
         - --webhook-config-url={{ printf "%s.%s" (include "name" .) (.Release.Namespace) }}
@@ -58,7 +59,7 @@ spec:
         {{- if .Values.metricsPort }}
         - --metrics-bind-address=:{{ .Values.metricsPort }}
         {{- end }}
-        - --health-bind-address=:{{ .Values.healthPort }}
+        - --health-probe-bind-address=:{{ .Values.healthPort }}
         - --leader-election-id={{ include "leaderelectionid" . }}
         securityContext:
           allowPrivilegeEscalation: false
