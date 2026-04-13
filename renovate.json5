@@ -42,6 +42,15 @@
       "automerge": true
     },
     {
+      // Group gardener updates in one PR.
+      groupName: "gardener",
+      matchManagers: ["gomod"],
+      matchPackageNames: [
+        '/^github\\.com/gardener/',
+      ],
+      "automerge": true
+    },
+    {
       matchFileNames: [
         'chart/**',
         'cmd/**',
